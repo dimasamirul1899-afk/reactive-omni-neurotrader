@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NeuroTrader — Reactive Meets AI</title>
+<style>
+  :root { --bg:#070b16; --panel:#0e1626; --line:#1e2c44; --txt:#dbe4f3; --dim:#8fa3c0;
+          --amber:#f5b942; --green:#3ddc84; --red:#ff6b6b; --blue:#5aa9ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt); font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; line-height:1.55; }
+  header { padding:32px 20px 8px; max-width:960px; margin:0 auto; }
+  h1 { margin:0 0 4px; font-size:30px; }
+  h1 span { color:var(--amber); }
+  .sub { color:var(--dim); margin:0 0 16px; }
+  .badges { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0 4px; }
+  .badge { border:1px solid var(--line); border-radius:999px; padding:4px 12px; font-size:13px; color:var(--dim); }
+  .badge b { color:var(--txt); }
+  main { max-width:960px; margin:0 auto; padding:8px 20px 48px; }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px; margin:16px 0; }
+  h2 { margin:0 0 10px; font-size:19px; }
+  p { margin:8px 0; }
+  code { background:#0a1220; border:1px solid var(--line); border-radius:4px; padding:1px 6px; font-size:13px; }
+  .flow { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:14px 0; }
+  .node { background:#0a1220; border:1px solid var(--line); border-radius:8px; padding:10px 14px; font-size:14px; }
+  .node b { display:block; font-size:15px; }
+  .node small { color:var(--dim); }
+  .arrow { color:var(--amber); font-weight:700; }
+  table { width:100%; border-collapse:collapse; font-size:14px; margin:10px 0; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); }
+  th { color:var(--dim); font-weight:600; }
+  .buy { color:var(--green); font-weight:700; }
+  .sell { color:var(--red); font-weight:700; }
+  .hold { color:var(--dim); }
+  .controls { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; }
+  button { background:#16233c; color:var(--txt); border:1px solid var(--line); border-radius:8px; padding:8px 14px; cursor:pointer; font-size:14px; }
+  button:hover { border-color:var(--amber); }
+  button.primary { background:var(--amber); color:#111; border-color:var(--amber); font-weight:700; }
+  .addr { font-family:ui-monospace,Menlo,monospace; font-size:13px; word-break:break-all; }
+  .note { color:var(--dim); font-size:13px; }
+  a { color:var(--blue); }
+  .scorebar { height:8px; background:#0a1220; border-radius:4px; overflow:hidden; margin:4px 0 12px; }
+  .scorebar > div { height:100%; background:var(--amber); }
+</style>
+</head>
+<body>
+<header>
+  <h1>NeuroTrader <span>— Reactive Meets AI</span></h1>
+  <p class="sub">A tiny neural network that lives inside a Reactive contract and trades on what it sees.
+  Built for the Reactive Omni Buildathon (DoraHacks) — track: <b>Reactive Meets AI</b>, deadline 5 Dec 2026.</p>
+  <div class="badges">
+    <span class="badge">Prize pool <b>$5,500 in REACT</b></span>
+    <span class="badge">AI track <b>$1,000 first place</b></span>
+    <span class="badge">Origin <b>Base Sepolia</b></span>
+    <span class="badge">Reactive <b>Lasna testnet</b></span>
+    <span class="badge">Model <b>3 → 4 → 1 MLP, on-chain</b></span>
+  </div>
+</header>
+<main>
+  <section>
+    <h2>The loop</h2>
+    <div class="flow">
+      <div class="node"><b>PriceOracle</b><small>Base Sepolia · emits PriceUpdate</small></div>
+      <span class="arrow">→</span>
+      <div class="node"><b>NeuroTraderReactive</b><small>Lasna · subscribes, runs the NN</small></div>
+      <span class="arrow">→</span>
+      <div class="node"><b>TradeExecutor</b><small>Base Sepolia · callback, paper portfolio</small></div>
+    </div>
+    <p>Every price event flows through Reactive: the oracle emits <code>PriceUpdate</code> on Base Sepolia,
+    the reactive contract on Lasna receives it in <code>react()</code>, updates an 8-price window, runs the
+    frozen neural network <b>on-chain</b>, and when the model is confident it requests a callback that lands
+    on the TradeExecutor — which opens/closes a paper long and banks realized PnL. No off-chain bot, no paid API.</p>
+    <p class="note">The oracle is a demo feed (a stand-in for Chainlink / Uniswap TWAP). The reactive contract
+    subscribes by event signature, so pointing it at a real feed is a one-line constructor change.</p>
+  </section>
+
+  <section>
+    <h2>The model — it runs inside the contract</h2>
+    <p>A 3 → 4 → 1 multilayer perceptron, activation <code>φ(x) = x / (1 + |x|)</code>, all fixed-point (1e18).
+    Features from the last 8 prices (p0 = newest): 1-step return ×10, 5-step return ×10, and window volatility ×10.
+    Decision: score ≥ +0.25 → <span class="buy">BUY</span>, ≤ −0.25 → <span class="sell">SELL</span>, else HOLD.
+    Cooldown of 3 price updates and no repeated same-side trades.</p>
+    <p>Trained offline on synthetic price paths with momentum regimes (pure Python, seed 1337). On fresh synthetic
+    data (seed 999, 25,200 windows): <b>77.3% accuracy</b> at |score| ≥ 0.25 (vs 50% random), 48.8% coverage;
+    raw sign accuracy 71.2%. Weights are frozen in <code>NeuroNet.sol</code> and verified bit-exact against the
+    integer reference (<code>ref_vectors.py</code>) by the Foundry tests.</p>
+    <p class="note">Full model card: <a href="https://github.com/dimasamirul1899-afk/reactive-omni-neurotrader/blob/main/MODEL.md">MODEL.md</a>.
+    This is a demo model trained on synthetic data — not financial advice, and it trades a paper portfolio only.</p>
+  </section>
+
+  <section>
+    <h2>Try the model — same math as the contract</h2>
+    <p class="note">This simulator runs the exact fixed-point integer math from <code>NeuroNet.sol</code> (BigInt),
+    with the same frozen weights. Pick a price path and watch the model decide, step by step.</p>
+    <div class="controls">
+      <button class="primary" onclick="runSim('up')">Uptrend +0.5%/step</button>
+      <button onclick="runSim('down')">Downtrend −0.5%/step</button>
+      <button onclick="runSim('flat')">Flat / choppy</button>
+      <button onclick="runSim('reversal')">Up then down (reversal)</button>
+    </div>
+    <div id="out"><p class="note">Pick a scenario to run the simulation.</p></div>
+  </section>
+
+  <section>
+    <h2>Deployment (Lasna + Base Sepolia testnets)</h2>
+    <p id="deploy-status" class="note">Contracts are built and fully tested (23 Foundry tests pass). Testnet deployment
+    is pending testnet funds — the deployer address and the exact funding step are in the repo README.</p>
+    <table>
+      <tr><th>Contract</th><th>Chain</th><th>Address</th></tr>
+      <tr><td>PriceOracle</td><td>Base Sepolia (84532)</td><td class="addr" id="addr-oracle">TBD</td></tr>
+      <tr><td>NeuroTraderReactive</td><td>Lasna (5318007)</td><td class="addr" id="addr-reactive">TBD</td></tr>
+      <tr><td>TradeExecutor</td><td>Base Sepolia (84532)</td><td class="addr" id="addr-executor">TBD</td></tr>
+    </table>
+    <p class="note">Explorers: <a href="https://lasna.reactscan.net/">lasna.reactscan.net</a> ·
+    <a href="https://sepolia.basescan.org/">sepolia.basescan.org</a></p>
+  </section>
+
+  <section>
+    <h2>Links</h2>
+    <p>Code: <a href="https://github.com/dimasamirul1899-afk/reactive-omni-neurotrader">github.com/dimasamirul1899-afk/reactive-omni-neurotrader</a><br>
+    Buildathon: <a href="https://blog.reactive.network/reactive-omni-buildathon-thirty-days-to-find-out-what-one-second-buys/">Reactive Omni Buildathon</a> ·
+    Docs: <a href="https://dev.reactive.network/">dev.reactive.network</a> ·
+    Submit: <a href="https://dorahacks.io/">DoraHacks</a></p>
+  </section>
+</main>
+<script>
+// ---- Exact mirror of NeuroNet.sol fixed-point math (BigInt, trunc-toward-zero) ----
+const S = 10n ** 18n;
+const W1 = [
+  [-414742126877598464n, -345943257349593856n, -719179605000871168n],
+  [168868152620823776n, -197634148319973728n, -793939866610911232n],
+  [385344431955193216n, -1337024450908922112n, -396787589984056384n],
+  [346384572712548032n, -1206410045058986496n, -15604900799742624n],
+];
+const B1 = [-289612289081566n, -180347767765144512n, 104465541226820784n, -8909020327705132n];
+const W2 = [-359427052381787584n, 151175768689875200n, -1301855387523353344n, -977046712566446976n];
+const B2 = 3309466415263426n;
+const BUY = 250000000000000000n, SELL = -250000000000000000n;
+
+function phi(x) { const ax = x < 0n ? -x : x; return (x * S) / (S + ax); }
+function features(p) { // p: 8 prices newest-first, USD x 1e8
+  const p0 = BigInt(p[0]), p1 = BigInt(p[1]), p4 = BigInt(p[4]);
+  const f1 = ((p0 - p1) * 10n * S) / p1;
+  const f2 = ((p0 - p4) * 10n * S) / p4;
+  let lo = BigInt(p[0]), hi = BigInt(p[0]), sum = 0n;
+  for (const v of p) { const b = BigInt(v); if (b < lo) lo = b; if (b > hi) hi = b; sum += b; }
+  const mean = sum / 8n;
+  const f3 = ((hi - lo) * 10n * S) / mean;
+  return [f1, f2, f3];
+}
+function predict(f) {
+  const h = [];
+  for (let j = 0; j < 4; j++) {
+    const pre = (W1[j][0]*f[0] + W1[j][1]*f[1] + W1[j][2]*f[2]) / S + B1[j];
+    h.push(phi(pre));
+  }
+  const pre = (W2[0]*h[0] + W2[1]*h[1] + W2[2]*h[2] + W2[3]*h[3]) / S + B2;
+  return phi(pre);
+}
+function decide(score) { if (score >= BUY) return 1; if (score <= SELL) return 2; return 0; }
+
+function series(kind, n) {
+  let p = 300000000000, out = [];
+  for (let i = 0; i < n; i++) {
+    out.push(p);
+    if (kind === 'up') p = Math.floor(p * 1005 / 1000);
+    else if (kind === 'down') p = Math.floor(p * 995 / 1000);
+    else if (kind === 'flat') p = p + (i % 2 === 0 ? 1000000 : -1000000);
+    else p = Math.floor(p * (i < n/2 ? 1005 : 995) / 1000);
+  }
+  return out;
+}
+
+function runSim(kind) {
+  const prices = series(kind, 14);
+  const win = []; // newest first
+  let lastAction = 0, sinceAction = 99, pos = 0, entry = 0, realized = 0, trades = 0;
+  let rows = '';
+  prices.forEach((price, i) => {
+    win.unshift(price); if (win.length > 8) win.pop();
+    let score = null, action = 0, note = 'warming up';
+    if (win.length === 8) {
+      score = predict(features(win));
+      action = decide(score);
+      if (action !== 0 && action !== lastAction && (lastAction === 0 || sinceAction >= 3)) {
+        if (action === 1 && pos === 0) { pos = 1; entry = price; trades++; note = 'callback → BUY executed'; }
+        else if (action === 2 && pos === 1) { pos = 0; realized += price - entry; entry = 0; trades++; note = 'callback → SELL executed'; }
+        else note = 'model fired, executor ignored (already in position)';
+        lastAction = action; sinceAction = 0;
+      } else if (action === 0) note = 'HOLD — below confidence';
+      else note = 'no trade — same side / cooldown';
+    }
+    sinceAction++;
+    const usd = (price / 1e8).toFixed(2);
+    const sc = score === null ? '—' : (Number(score) / 1e18).toFixed(3);
+    const cls = action === 1 ? 'buy' : action === 2 ? 'sell' : 'hold';
+    const label = action === 1 ? 'BUY' : action === 2 ? 'SELL' : 'HOLD';
+    rows += `<tr><td>${i+1}</td><td>$${usd}</td><td>${sc}</td><td class="${cls}">${label}</td><td>${note}</td><td>${pos ? 'LONG @ $' + (entry/1e8).toFixed(2) : 'flat'}</td></tr>`;
+  });
+  const pnl = (realized / 1e8).toFixed(2);
+  document.getElementById('out').innerHTML =
+    `<table><tr><th>#</th><th>Price</th><th>Score</th><th>Decision</th><th>What happens</th><th>Paper position</th></tr>${rows}</table>
+     <p>Trades executed: <b>${trades}</b> · Realized PnL: <b>$${pnl}</b> (paper, USD) · Final position: <b>${pos ? 'LONG' : 'flat'}</b></p>`;
+}
+</script>
+</body>
+</html>

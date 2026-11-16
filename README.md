@@ -41,6 +41,8 @@ Explorers: [lasna.reactscan.net](https://lasna.reactscan.net/) · [sepolia.bases
 ## Tests
 
 ```bash
+git clone --recursive https://github.com/dimasamirul1899-afk/reactive-omni-neurotrader.git
+cd reactive-omni-neurotrader
 forge test   # 23 tests, all passing
 ```
 
